@@ -34,11 +34,15 @@ This solution offers several advantages.  First, the deployment / undeployment o
 
 The solution provides flexibility with respect to the deployment of applications.  The number of applications that can run concurrently is a function of the availability of CIDR blocks within the VPC.  CIDR block assignment is managed automatically to ensure complete access to the VPC’s full address range.  Multiple versions of a given application can be launched and individual application can be launched into different environment types (e.g., development, test, production).  These environment types can be individually configured, using CloudFormation template maps, to the appropriate resource level.  In the CloudFormation template responsible for launching LAMP application stacks, two maps are used to specify the AMIs (i.e., Amazon Machine Image - OS and pre installed software packages) and instance types (i.e., server sizes) of servers.
 
+
 ![Image1](doco-images/screen1.jpg)
+
 
 The screen capture above is of the AAD application.  It illustrates one successfully deployed LAMP application stack and one LAMP application stack in the process of being deployed.
 
+
 ![Image1](doco-images/screen2.jpg)
+
 
 The screen capture above is from the AAD application.  It illustrates the result of user action to display the detail behind a deployed LAMP application stack.
 
