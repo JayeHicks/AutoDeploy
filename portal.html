@@ -1,0 +1,523 @@
+<!--
+Jaye Hicks Consulting 2018/19
+
+Obligatory legal disclaimer:
+ You are free to use this source code (this file and all other files 
+ referenced in this file) "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER 
+ EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED 
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE 
+ ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THIS SOURCE CODE IS WITH 
+ YOU.  SHOULD THE SOURCE CODE PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL 
+ NECESSARY SERVICING, REPAIR OR CORRECTION. See the GNU GENERAL PUBLIC 
+ LICENSE Version 3, 29 June 2007 for more details.
+-->
+<!DOCTYPE html>
+<html>
+
+<script src="https://sdk.amazonaws.com/js/aws-sdk-2.331.0.min.js"></script>
+<script src="amazon-cognito-identity.min.js"></script>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+  
+<script>
+////////////////////////////// Configuration Settings  ///////////////////////////////////////////
+
+//Make all configuraiton settings in this comment block section as well as three settings below in
+//three separate functions.  Search on 'Configuration Setting'
+  
+//generic security settings
+var REGION                  = 'us-east-1';
+var USER_POOL_ID            = 'us-east-1_123456789';
+var USER_POOL_APP_CLIENT_ID = '12345678901234567890123456';
+var IDENTITY_POOL_ID        = 'us-east-1:12345678-1234-1234-1234-123456789012';
+      
+//specific to application that AAD web app will deploy
+var APP_TO_DEPLOY_NAME = 'bobsapp';  //stacks named as: "aad-" + APP_TO_DEPLOY_NAME + unique_id
+
+//Do not forget to make the following three configuration settings below:
+//  in the function provisionStack() 
+//     set the location of CF template that deploys a single LAMP application stack
+//     set ARN of IAM role that enables CF to create/delete AWS resources
+//  in the function logInToApp() set key by inserting Region and User Pool Id
+
+///////////////////////////// End of Configuration Settings ///////////////////////////////////////  
+  
+function enableButtons()
+{
+  document.getElementById("list_deployments").disabled = false;
+}
+
+function clearLogInValues()
+{
+  document.getElementById("password").value = '';
+  document.getElementById("username").value = '';
+}
+  
+function setApplicationDetails(stackname, deployed_url, keys, jump1, jump2, db1, db2)
+{
+  document.getElementById("stack_name").innerHTML = stackname;
+  document.getElementById("deployed_app_url").innerHTML = deployed_url;
+  document.getElementById("keys").innerHTML = keys;
+  document.getElementById("jump1").innerHTML = jump1;
+  document.getElementById("jump2").innerHTML = jump2;
+  document.getElementById("database1").innerHTML = db1;
+  document.getElementById("database2").innerHTML = db2;
+}
+  
+function displayApplicationDetails(stackname)
+{
+  var appURL = '';
+  var keyPair = '';
+  var jump1IP = '';
+  var jump2IP = '';
+  var db1IP = '';
+  var db2IP = '';
+  var cloudformation = new AWS.CloudFormation();
+  var param1 = {};
+  var param2 = 
+  {
+    NextToken: '1',
+	StackName: stackname            
+  };
+
+  cloudformation.listExports(param1, 
+    function(err, data) 
+    {
+      if(err)
+	  {	  
+	    console.log("Could not access stacks exports.");
+	    console.log(err, err.stack); 
+	    document.getElementById("user_update_messages").innerHTML = 
+	    "Could not access CloudFormation stack export values.";
+	    setApplicationDetails('', '', '', '', '', '', '');
+	  }
+	  else
+	  {
+	    console.log(data);
+        var exp_vals = data.Exports;
+        for (var i = 0,   iLen = exp_vals.length;   i < iLen;  i++) 	    
+	    {
+          if (exp_vals[i].Name == 'Master-KeyPair')		  
+	        keyPair = exp_vals[i].Value;
+		  else if (exp_vals[i].Name == 'Shared-JumpServer1IP')
+		    jump1IP = exp_vals[i].Value;
+		  else if (exp_vals[i].Name == 'Shared-JumpServer2IP')
+		    jump2IP = exp_vals[i].Value;
+        }
+	    cloudformation.describeStacks(param2, function(err, data) 
+	    {     
+          if (err)
+	      {
+		    console.log("Could not access describeStacks to retrieve info on stack " 
+			            + stackname);
+		    console.log(err, err.stack); 
+	        document.getElementById("user_update_messages").innerHTML = 
+	        "Could not access access stack information for stack " + stackname;
+		    setApplicationDetails('', '', '', '', '', '', '');
+	      }
+          else
+          {
+		    console.log(data);
+	        var out_vals = data.Stacks[0].Outputs;
+            for (var i = 0,   iLen = out_vals.length;   i < iLen;  i++) 
+	        {
+		      if(out_vals[i].OutputKey == 'Endpoint')
+			    appURL = out_vals[i].OutputValue;
+			  else if(out_vals[i].OutputKey == 'DatabaseServer1IP')
+		        db1IP = out_vals[i].OutputValue;
+		      else if(out_vals[i].OutputKey == 'DatabaseServer2IP')
+		        db2IP = out_vals[i].OutputValue;
+		    }
+		    setApplicationDetails(stackname, appURL, keyPair, jump1IP, jump2IP, db1IP, db2IP);
+	      }
+	    });
+	  }
+    });
+}	
+
+function provisionStack(envtype, appversion) 
+{             
+  var cloudformation = new AWS.CloudFormation();
+  
+  //stack naming convention: "aad-" + <application name>
+  var stackname = "aad-" + APP_TO_DEPLOY_NAME + "-" + Math.random().toString(36).slice(2) +
+                  "-ver-" + appversion + "-env-" + envtype;
+          
+  var param = 
+  {
+    StackName: stackname,
+    Parameters: 
+	  [
+        {ParameterKey: 'Environment', ParameterValue: envtype, UsePreviousValue: false},
+        {ParameterKey: 'AppVersion', ParameterValue: appversion, UsePreviousValue: false}
+		
+		//NOTE: CloudFormation template that deploys LAMP application stacks supports
+		//more input values than are captured by this single page web application GUI.
+		//  'min size' app servers will be set to default value supplied by CF template
+		//  'max size' app servers will be set to default value supplied by CF template
+		//  'desired capacity' app servers will be set to default value defined in template
+      ],
+    OnFailure: 'DO_NOTHING',
+    
+	//Configuration Setting: ARN of IAM role givin CF privilege to create/modify/delete AWS services
+	RoleARN: 'arn:aws:iam::123456789012:role/AutoAppDeploy',
+    
+    //Configuration Setting: path for CF template to create infra for a single app deployment	
+	TemplateURL:   
+	  'https://s3.amazonaws.com/aadresources-bobsapp/web-app-res/app-infrastructure.yaml'
+  };
+	
+  console.log(param);
+	
+  cloudformation.createStack(param, 
+    function(err,data)
+    {
+      if (err) 
+	  {
+	    console.log("Could not create a new stack.");
+        console.log(err, err.stack);
+        document.getElementById("user_update_messages").innerHTML = "Could not create stack";
+      } 
+    });
+	
+  listStacks();
+}
+ 
+function listStacks() 
+{
+  var cloudformation = new AWS.CloudFormation();
+  var param =
+  {
+    //ensure all stacks returned regardless of stack status
+    StackStatusFilter:
+	[
+      'CREATE_IN_PROGRESS', 'CREATE_FAILED', 'CREATE_COMPLETE', 'ROLLBACK_IN_PROGRESS', 
+	  'ROLLBACK_FAILED','ROLLBACK_COMPLETE', 'DELETE_IN_PROGRESS', 'DELETE_FAILED', 
+	  'UPDATE_IN_PROGRESS','UPDATE_COMPLETE_CLEANUP_IN_PROGRESS', 'UPDATE_COMPLETE', 
+	  'UPDATE_ROLLBACK_IN_PROGRESS','UPDATE_ROLLBACK_FAILED', 'REVIEW_IN_PROGRESS',
+	  'UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS', 'UPDATE_ROLLBACK_COMPLETE'
+    ]
+  };
+  var stacks = cloudformation.listStacks(param, 
+    function(err, data) 
+    {
+      if (err) 
+	  {
+	    console.log("Could not list stacks.");
+	    document.getElementById("user_update_messages").innerHTML = 
+	    "Could not list deployed applications.";
+	    document.getElementById("deployed_apps").innerHTML = '';
+	  }
+      else 
+	  { 
+        console.log(data);
+        var html = "<table border=\"1\"><tr><td bgcolor=\"lightgray\">StackName</td>";
+		    html +="<td bgcolor=\"lightgray\">Created</td>";
+		    html += "<td bgcolor=\"lightgray\">Status</td>";
+			html += "<td bgcolor=\"lightgray\">UnDeploy</td>";
+			html += "<td bgcolor=\"lightgray\">Details</td></tr>";
+        jQuery.each(data.StackSummaries, function(index,obj) 
+	    {
+          //only list stacks deployed by AutoAppDeploy web application
+          if (obj.StackName.startsWith("aad-" + APP_TO_DEPLOY_NAME))
+		  {
+            html+= ('<tr><td>'+obj.StackName+'</td><td>'+obj.CreationTime+'</td><td>'+
+			        obj.StackStatus+'</td><td>&nbsp<button onclick=\"deleteStack(\''+
+					obj.StackName+'\')\">Delete</button></td>' +
+					'<td>&nbsp<button onclick=\"displayApplicationDetails(\''+
+					obj.StackName+'\')\">Info</button></td></tr>');
+          }
+        });
+        
+	    html += "</table>";
+        jQuery("#deployed_apps").html(html);
+      }
+    });
+}
+	  
+function deleteStack(stackname) 
+{
+  var cloudformation = new AWS.CloudFormation();
+  var param = 
+  {
+    StackName: stackname
+  };
+  cloudformation.deleteStack(param, 
+    function(err, data) 
+    {
+      if (err)
+      {
+        document.getElementById("user_update_messages").innerHTML = 
+		                        "Could not delete stack " + stackname; 
+	    console.log("Could not delete the stack " + stackname);
+	    console.log(err, err.stack);
+	  }
+      else     
+	  {
+        console.log(data);
+	    
+        //force page refresh
+        setApplicationDetails('', '', '', '', '', '', '');
+        listStacks();
+      }
+    });
+}
+  
+function listApps() 
+{
+  // list apps available for deployment
+  var cloudformation = new AWS.CloudFormation();
+  var s3             = new AWS.S3();
+  var params         = {};
+  var params2        = {};
+  
+  cloudformation.listExports(params, 
+    function(err, data) 
+    {
+      if (err)
+      {	  
+	    console.log("Could not access CloudFormation stacks Exports.");
+	    console.log(err, err.stack); 
+	    document.getElementById("user_update_messages").innerHTML = 
+	      "Could not access CloudFormation Exports to display app inventory.";
+	    document.getElementById("app_inventory").innerHTML = ''; 
+	  }
+      else     
+	  {
+        console.log(data);  
+        var appbucketname = '';
+        var exp_vals      = data.Exports;
+		
+        for (var i = 0, iLen = exp_vals.length; i < iLen; i++) 
+	    {
+          if (exp_vals[i].Name == 'Master-S3ResourceBucket') 
+	        appbucketname = exp_vals[i].Value;
+        }
+        console.log(appbucketname);
+        var appversions = [];
+        var params2 = {Bucket: appbucketname, Prefix: 'deploy-app-res', MaxKeys: '100'}
+        s3.listObjectsV2(params2, 
+		  function(err, data)
+	      {
+            console.log(data);
+            var app_list = data.Contents;
+            for (var i = 0,   iLen = app_list.length;   i < iLen; i++) 
+		    {
+              if (app_list[i].Key.startsWith("deploy-app-res/App")) 
+		      {
+                appversions.push(app_list[i].Key.split(".")[0].split("App")[1]);
+              }
+            }
+            var html = "<table border=\"1\"><tr><td bgcolor=\"lightgray\">Version</td>";
+			    html += "<td bgcolor=\"lightgray\">Env to Deploy Into</td></tr>";
+
+            for (var i=0, iLen=appversions.length; i<iLen; i++)
+		    {
+              html += "<tr>";
+              html += '<td style="padding:5px">';
+              html += appversions[i];
+              html += "</td>";
+              html += '<td style="padding:5px">';
+              html += "<button onclick=\"provisionStack('Dev','" + appversions[i] + 
+			          "')\">Dev</button>&nbsp";
+              html += "<button onclick=\"provisionStack('Test','" + appversions[i] + 
+			          "')\">Test</button>&nbsp";
+              html += "<button onclick=\"provisionStack('Prod','" + appversions[i] + 
+			          "')\">Prod</button>&nbsp";
+              html += "<button onclick=\"provisionStack('Sales','" + appversions[i] + 
+			          "')\">Sales</button>";                                     
+              html += "</td>";
+              html += "</tr>";
+            }
+
+            html += "</table>";
+            console.log(html);
+            jQuery("#app_inventory").html(html);
+          });
+      }
+  });
+}
+
+function logInToApp()
+{
+  var authenticationData = 
+  {
+    Username : document.getElementById("username").value,
+    Password : document.getElementById("password").value
+  }; 
+  var authenticationDetails = new AmazonCognitoIdentity.AuthenticationDetails(authenticationData);
+  var poolData = 
+  { 
+	UserPoolId : USER_POOL_ID,
+	ClientId : USER_POOL_APP_CLIENT_ID
+  };  
+  var userPool = new AmazonCognitoIdentity.CognitoUserPool(poolData);
+  var userData = 
+  { 
+    Username : document.getElementById("username").value,
+    Pool : userPool
+  };  
+  var cognitoUser = new AmazonCognitoIdentity.CognitoUser(userData);
+  cognitoUser.authenticateUser(authenticationDetails, {
+    onSuccess: function (result) 
+	{
+	  var accessToken = result.getAccessToken().getJwtToken();
+	  AWS.config.region = REGION;
+      AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+        IdentityPoolId : IDENTITY_POOL_ID,
+		
+		//Configuration Setting:
+        //insert the 'Region' and 'User Pool Id' below using the following pattern 
+        //'cognito-idp.<region>.amazonaws.com/<user pool id>'
+		Logins : { 	
+		  'cognito-idp.us-east-1.amazonaws.com/us-east-1_123456789' :
+		  result.getIdToken().getJwtToken()
+        }
+      });
+	  
+      AWS.config.credentials.refresh((error) => {
+        if (error) 
+		{
+		  console.log("Error with Cognito user credentials refresh.");
+          console.error(error);
+		  document.getElementById("user_update_messages").innerHTML = 
+	        "Unsuccessful login: Cognito credentials refresh error.";
+		  clearLogInValues();
+        } 
+		else 
+		{
+          console.log('Successful user log on to AAD web application.');
+		  AWS.config.update({
+		    accessKeyId: AWS.config.credentials.accessKeyId, 
+			secretAccessKey: AWS.config.credentials.secretAccessKey,
+			sessionToken: AWS.config.credentials.sessionToken
+		  });
+		  
+		  document.getElementById("user_update_messages").innerHTML = 
+		  userData.Username + ", you have been successfully logged in.";
+		  setApplicationDetails('', '', '', '', '', '', '');
+		  enableButtons();
+		  clearLogInValues();
+		  listApps();
+		  listStacks();
+        }
+      });
+    },
+
+    onFailure: function(err) 
+	{
+	  console.log("Unsuccessful user log on to AAD web application.");
+	  document.getElementById("user_update_messages").innerHTML = 
+	    "Unsuccessful login: invalid id and / or password.";
+	  clearLogInValues();
+    },
+    
+    mfaRequired: function(codeDeliveryDetails) 
+	{
+      var verificationCode = prompt('Please input verification code' ,'');
+      cognitoUser.sendMFACode(verificationCode, this);
+    },
+	
+	newPasswordRequired: function(userAttributes, requiredAttributes) 
+	{
+	  var newPassword = prompt("Please enter a new password (min of 6 chars).", "");
+	  if (newPassword == null || newPassword == "" || newPassword.length < 6)
+      {
+		console.log("User password reset attempt failed.");
+	    document.getElementById("user_update_messages").innerHTML = 
+	      "Password reset attempt failed";
+		clearLogInValues();
+	  }
+	  else
+	  {
+	    console.log("Password reset attempt succeeded.");
+	    document.getElementById("password").setAttribute('value',newPassword);
+	    cognitoUser.completeNewPasswordChallenge(newPassword, null, this);
+	    document.getElementById("user_update_messages").innerHTML = 
+	      "Password reset attempt succeeded.";
+		clearLogInValues();
+      }
+	}	
+  });
+}
+
+
+</script>
+  
+  <head>
+  </head>
+  <body>
+    <p id="title">
+    <h1>Automated Application Deployment</h1>
+    </p>
+    <span id="user_update_messages">
+You must log (bottom of this page) to access the AAD application.
+	</span>
+    <br>
+	<br>
+    
+	<fieldset>
+	<legend> Applications You Have Deployed</legend>
+	<p id="buttonsnboxes">
+    <button id="list_deployments" onclick="listStacks()" disabled>Refresh</button>
+    </p>
+    <p id="deployed_apps"> 
+    </p>
+	</fieldset>
+	<br>
+	<br>
+	
+    <fieldset>
+	<legend> Applications You Can Deploy</legend>
+    <p id="app_inventory">
+    </p>
+	</fieldset>
+	<br>
+	<br>
+	
+	<fieldset>
+	<legend> Single Deployed Application's Details</legend>
+    <p id="deployed_app_details">
+	<b>Stack Name:</b> <span id = "stack_name"></span><br>
+	<b>Applicaiton URL:</b> <span id = "deployed_app_url"></span>
+	
+	<fieldset>
+	<legend>Access to Deployed App's Infra (SSH -> jump server -> to database server)</legend>
+	<b>SSH Key:</b> <span id = "keys"></span><br>
+	<br>
+	
+	<fieldset>
+	<legend> Jump Servers</legend>
+	<b>Jump Server 1:</b> <span id = "jump1"></span><br>
+	<b>Jump Server 2:</b> <span id = "jump2"></span><br>
+	</fieldset>
+	<br>
+	
+	<fieldset>
+	<legend> Database Servers</legend>
+	<b>Database Server 1:</b> <span id = "database1"></span><br>
+	<b>Database Server 2:</b> <span id = "database2"></span><br>
+	</fieldset>
+    </p>
+	</fieldset>
+	</fieldset>
+	<br>
+	
+	<p>
+	<fieldset>
+	<legend> Logon to Automated Application Deployment Application</legend>
+	<div>
+    <label for="username">User Name: </label>
+    <input type="text" id="username" name="username">
+	</div>
+	<br>
+	<div>
+	<label for="password">Password: </label>
+	<input type="password" id="password" name="password">
+	</div>
+	<div>
+    <button onclick="logInToApp()">Logon</button>
+    </div>
+	</fieldset>
+	</p>
+  </body>
+</html>
