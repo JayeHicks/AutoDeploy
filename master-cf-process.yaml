@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: 
+  "Jaye Hicks Consulting 2019
+  Obligatory legal disclaimer 
+  You are free to use this source code (this file and all other files 
+  referenced in this file) 'AS IS' WITHOUT WARRANTY OF ANY KIND, EITHER 
+  EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED 
+  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE 
+  ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THIS SOURCE CODE IS WITH 
+  YOU.  SHOULD THE SOURCE CODE PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL 
+  NECESSARY SERVICING, REPAIR OR CORRECTION. See the GNU GENERAL PUBLIC 
+  LICENSE Version 3, 29 June 2007 for more details."
+  
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: S3 bucket that contains CF Templates and application deployment packages
+      Parameters:
+      - S3ResourceBucket
+    - Label:
+        default: Existing Key Pair to associate with all EC2 instances that will be launched
+      Parameters:
+      - KeyPair
+    - Label:
+        default: "The first two octects of the shared VPC CIDR (e.g., '10' and '0' from 10.0.0.0/16)"
+      Parameters:
+      - FirstOctect
+      - SecondOctect
+    ParameterLabels: 
+      S3ResourceBucket: 
+        default: S3 Bucket name
+      KeyPair: 
+        default: KeyPair name
+      FirstOctect: 
+        default: First octect
+      SecondOctect: 
+        default: Second octect
+
+Parameters:
+  S3ResourceBucket: #future enhancement; tweak AllowedPattern to disallow hard IP addresses
+    Type: String
+    Description: S3 Bucket name containing resources
+    MinLength: 3
+    MaxLength: 63
+    AllowedPattern: "^[0-9a-z]+([0-9a-z-.]*[0-9a-z])*$"
+    ConstraintDescription: Only lowercase letters, numbers, hyphens, and periods. Must start / end with letter or number. Must not be a numeric, hard IP address
+  KeyPair:
+    Type: String
+    Description: Name of existing KeyPair (e.g., "MyKeyPair")
+    MinLength: 2
+    MaxLength: 255
+  FirstOctect:
+    Type: Number
+    Description: 'First octect (e.g., enter "X" if your CIDR is "X.y.0.0/16")'
+    Default: 10
+    MinValue: 0
+    MaxValue: 255
+  SecondOctect:
+    Type: Number
+    Description: 'Second octect (e.g., enter "Y" if your CIDR is "x.Y.0.0/16")'
+    Default: 0
+    MinValue: 0
+    MaxValue: 255
+
+Resources:
+  SharedInfra:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        KeyPair: !Ref KeyPair
+        VPCCIDR: !Join ['', [!Ref FirstOctect, ".", !Ref SecondOctect, ".0.0/16"]]
+        SharedPubSN1CIDR: !Join ['', [!Ref FirstOctect, ".", !Ref SecondOctect, ".0.0/24"]]
+        SharedPubSN2CIDR: !Join ['', [!Ref FirstOctect, ".", !Ref SecondOctect, ".1.0/24"]]
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Master CF Stack"
+      - Key: "Name"
+        Value: "Shared Infra Stack"
+      TemplateURL: !Join ['', ["https://s3.amazonaws.com/", !Ref S3ResourceBucket,"/web-app-res/shared-infrastructure.yaml"]]
+      TimeoutInMinutes: 20
+  CIDRAssign:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        S3ResourceBucket: !Ref S3ResourceBucket
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Master CF Stack"
+      - Key: "Name"
+        Value: "CIDR Assignment Stack"
+      TemplateURL: !Join ['',["https://s3.amazonaws.com/", !Ref S3ResourceBucket, "/web-app-res/cidr-assignment.yaml"]]
+      TimeoutInMinutes: 20
+    DependsOn: SharedInfra
+  WebAppPortal:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        S3ResourceBucket: !Ref S3ResourceBucket
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Master CF Stack"
+      - Key: "Name"
+        Value: "Web App Portal CF Stack"
+      TemplateURL: !Join ['',["https://s3.amazonaws.com/", !Ref S3ResourceBucket, "/web-app-res/portal-website.yaml"]]
+      TimeoutInMinutes: 20
+    DependsOn: SharedInfra
+    
+Outputs:
+  S3ResourceBucket:
+    Description: Name of S3 bucket holding templates and application deployment packages
+    Value: !Ref S3ResourceBucket
+    Export: 
+      Name: Master-S3ResourceBucket
+  KeyPair:
+    Description: Name of KeyPair assigned to EC2 instances launched by Automatic Application Deployment web application
+    Value: !Ref KeyPair
+    Export: 
+      Name: Master-KeyPair

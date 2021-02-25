@@ -1,0 +1,59 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description:
+  "Jaye Hicks Consulting 2019
+  Obligatory legal disclaimer 
+  You are free to use this source code (this file and all other files 
+  referenced in this file) 'AS IS' WITHOUT WARRANTY OF ANY KIND, EITHER 
+  EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED 
+  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE 
+  ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THIS SOURCE CODE IS WITH 
+  YOU.  SHOULD THE SOURCE CODE PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL 
+  NECESSARY SERVICING, REPAIR OR CORRECTION. See the GNU GENERAL PUBLIC 
+  LICENSE Version 3, 29 June 2007 for more details."
+
+Parameters:
+  S3ResourceBucket:
+    Type: String
+ 
+Resources:
+  PortalBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      #Since naming standard is "aadresources-<app name>" the second substring is the app name  
+      BucketName: !Join ["", ["aadportal-", !Select [1, !Split ["-", !Ref S3ResourceBucket]]]]
+      CorsConfiguration:
+        CorsRules:
+        - AllowedHeaders: ['*']
+          AllowedMethods: ['GET']
+          AllowedOrigins: ['*']
+          Id: rule1
+          MaxAge: '3000'
+      AccessControl: PublicRead
+      WebsiteConfiguration:
+        ErrorDocument: portal.html
+        IndexDocument: portal.html
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Portal Website Stack"
+      - Key: "Name"
+        Value: "S3 bucket hosting web application"
+  PortalBucketPolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Properties:
+      Bucket: !Ref PortalBucket
+      PolicyDocument:
+        Statement:
+        - Sid: "ABC123"
+          Action:
+          - "s3:GetObject"
+          Effect: Allow
+          Resource: !Join ["", ["arn:aws:s3:::", !Ref PortalBucket, "/*"]]
+          Principal:
+            AWS:
+            - "*"
+
+Outputs:
+  PortalBucketURL:
+    Description: URL for Portal Bucket
+    Value: !Sub ${PortalBucket.WebsiteURL}/portal.html

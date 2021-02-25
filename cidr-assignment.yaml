@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description:
+  "Jaye Hicks Consulting 2019
+  Obligatory legal disclaimer 
+  You are free to use this source code (this file and all other files 
+  referenced in this file) 'AS IS' WITHOUT WARRANTY OF ANY KIND, EITHER 
+  EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED 
+  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE 
+  ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THIS SOURCE CODE IS WITH 
+  YOU.  SHOULD THE SOURCE CODE PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL 
+  NECESSARY SERVICING, REPAIR OR CORRECTION. See the GNU GENERAL PUBLIC 
+  LICENSE Version 3, 29 June 2007 for more details."
+
+Parameters:
+  S3ResourceBucket:
+    Type: String
+
+Resources:
+  AutoSubnetTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: "Cidr"
+        AttributeType: "S"
+      - AttributeName: "StackId"
+        AttributeType: "S"
+      KeySchema:
+      - AttributeName: "Cidr"
+        KeyType: "HASH"
+      ProvisionedThroughput:
+        ReadCapacityUnits: "5"
+        WriteCapacityUnits: "5"
+      GlobalSecondaryIndexes:
+      - IndexName: "CidrsForStacks"
+        KeySchema:
+        - AttributeName: "StackId"
+          KeyType: "HASH"
+        Projection:
+          ProjectionType: ALL
+        ProvisionedThroughput:
+          ReadCapacityUnits: "5"
+          WriteCapacityUnits: "5"
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - CIDR Assignment Stack"
+      - Key: "Name"
+        Value: "DynamoDB Table for CIDR management"
+  IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+  IAMPolicy:
+    DependsOn: IAMRole
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: autosubnetrole
+      Roles:
+      - !Ref IAMRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Action:
+          - "logs:*"
+          Resource:
+          - "arn:aws:logs:*:*:*"
+        - Effect: Allow
+          Action:
+          - "dynamodb:*"
+          Resource:
+          - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AutoSubnetTable}
+          - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AutoSubnetTable}/index/*
+  CIDRAssignManager:
+    Type: AWS::Lambda::Function
+    DependsOn:
+    - IAMRole
+    - IAMPolicy
+    Properties:
+      Role: !GetAtt IAMRole.Arn
+      Code:
+        S3Bucket: !Ref S3ResourceBucket
+        S3Key: !Join ['', ["web-app-res/", "cidr-assignment.zip"]]
+      Handler: autosubnet.autosubnet
+      Runtime: "python3.8"
+      Timeout: "300"
+      MemorySize: "128"
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - CIDR Assignment Stack"
+      - Key: "Name"
+        Value: "Lambda function for CIDR Management"
+
+Outputs:
+  CIDRAssignLambdaARN:
+    Description: ARN of AutoSubnet Lambda
+    Value: !GetAtt CIDRAssignManager.Arn
+    Export:
+      Name: CIDR-Assignment-LambdaARN
+  CIDRAssignTableName:
+    Description: Table Name of AutoSubnet Dynamo DB Table
+    Value: !Ref AutoSubnetTable
+    Export:
+      Name: CIDR-DynamoBTableName

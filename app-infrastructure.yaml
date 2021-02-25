@@ -1,0 +1,509 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description:
+  "Jaye Hicks Consulting 2019
+  Obligatory legal disclaimer 
+  You are free to use this source code (this file and all other files 
+  referenced in this file) 'AS IS' WITHOUT WARRANTY OF ANY KIND, EITHER 
+  EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED 
+  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE 
+  ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THIS SOURCE CODE IS WITH 
+  YOU.  SHOULD THE SOURCE CODE PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL 
+  NECESSARY SERVICING, REPAIR OR CORRECTION. See the GNU GENERAL PUBLIC 
+  LICENSE Version 3, 29 June 2007 for more details." 
+  
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: "App Environment Configuration"
+      Parameters:
+      - Environment
+      - AppVersion
+      - MinSize
+      - MaxSize
+      - DesiredCapacity
+
+Parameters:
+  AppVersion:
+    Type: String
+    Description: Version of application to deploy
+    Default: "1"
+  Environment:
+    Type: String
+    Description: Environment type to provision
+    Default: Dev
+    AllowedValues:
+    - Dev
+    - Test
+    - Prod
+    - Sales
+  MinSize:
+    Type: String
+    Description: Min number of app servers
+    Default: "2"
+  MaxSize:
+    Type: String
+    Description: Max number of app servers
+    Default: "2"
+  DesiredCapacity:
+    Type: String
+    Description: Desired number of app servers
+    Default: "2"
+
+Mappings:
+  AMIMapWeb: #Amazon Linux 2 AMI (HVM) x86, SSD Volume Type (updated 2/21)
+    us-east-1:
+      AWSLinux :    "ami-047a51fa27710816e"
+    us-east-2:
+      AWSLinux :    "ami-01aab85a5e4a5a0fe"
+    us-west-1:
+      AWSLinux :    "ami-005c06c6de69aee84"  
+    us-west-2:
+      AWSLinux :    "ami-0e999cbd62129e3b1"             
+    af-south-1:
+      AWSLinux :    "ami-0438616cef15ba2ca"
+    ap-east-1:
+      AWSLinux :    "ami-040f64b9a031d8eb0" 
+    ap-south-1:
+      AWSLinux :    "ami-08e0ca9924195beba"
+    ap-northeast-1:
+      AWSLinux :    "ami-0992fc94ca0f1415a"
+    ap-northeast-2:
+      AWSLinux :    "ami-09282971cf2faa4c9"
+    ap-southeast-1:
+      AWSLinux :    "ami-0e2e44c03b85f58b3"
+    ap-southeast-2:
+      AWSLinux :    "ami-04f77aa5970939148"
+    ca-central-1:
+      AWSLinux :    "ami-075cfad2d9805c5f2"
+    eu-central-1:
+      AWSLinux :    "ami-0a6dc7529cd559185"                
+    eu-north-1:
+      AWSLinux:     "ami-0eb6f319b31f7092d"
+    eu-west-1:
+      AWSLinux :    "ami-0fc970315c2d38f01"
+    eu-west-2:
+      AWSLinux :    "ami-098828924dc89ea4a"
+    eu-west-3:
+      AWSLinux :    "ami-0ea4a063871686f37"   
+    me-south-1:
+      AWSLinux:     "ami-0cc4f2b06b56d27e9"
+    sa-east-1:
+      AWSLinux :    "ami-089aac6323aa08aee"   
+  InstanceSizeWeb:
+    Dev:
+      "EC2" : "t2.micro"
+    Test:
+      "EC2" : "t2.micro"
+    Prod:
+      "EC2" : "t2.small"
+    Sales:
+      "EC2" : "t2.micro"
+  AMIMapDB: #Amazon Linux 2 AMI (HVM) x86, SSD Volume Type (updated 2/21)
+    us-east-1:
+      AWSLinux :    "ami-047a51fa27710816e"
+    us-east-2:
+      AWSLinux :    "ami-01aab85a5e4a5a0fe"
+    us-west-1:
+      AWSLinux :    "ami-005c06c6de69aee84"  
+    us-west-2:
+      AWSLinux :    "ami-0e999cbd62129e3b1"             
+    af-south-1:
+      AWSLinux :    "ami-0438616cef15ba2ca"
+    ap-east-1:
+      AWSLinux :    "ami-040f64b9a031d8eb0" 
+    ap-south-1:
+      AWSLinux :    "ami-08e0ca9924195beba"
+    ap-northeast-1:
+      AWSLinux :    "ami-0992fc94ca0f1415a"
+    ap-northeast-2:
+      AWSLinux :    "ami-09282971cf2faa4c9"
+    ap-southeast-1:
+      AWSLinux :    "ami-0e2e44c03b85f58b3"
+    ap-southeast-2:
+      AWSLinux :    "ami-04f77aa5970939148"
+    ca-central-1:
+      AWSLinux :    "ami-075cfad2d9805c5f2"
+    eu-central-1:
+      AWSLinux :    "ami-0a6dc7529cd559185"                
+    eu-north-1:
+      AWSLinux:     "ami-0eb6f319b31f7092d"
+    eu-west-1:
+      AWSLinux :    "ami-0fc970315c2d38f01"
+    eu-west-2:
+      AWSLinux :    "ami-098828924dc89ea4a"
+    eu-west-3:
+      AWSLinux :    "ami-0ea4a063871686f37"   
+    me-south-1:
+      AWSLinux:     "ami-0cc4f2b06b56d27e9"
+    sa-east-1:
+      AWSLinux :    "ami-089aac6323aa08aee"  
+  InstanceSizeDB:
+    Dev:
+      "EC2" : "t2.micro"
+    Test:
+      "EC2" : "t2.micro"
+    Prod:
+      "EC2" : "t2.small"
+    Sales:
+      "EC2" : "t2.micro"
+
+Resources:
+  CIDRAssignCustomResource: # will reserve 4 CIDR blocks for LAMP stamp app
+    Type: "AWS::CloudFormation::CustomResource"
+    Properties:
+      ServiceToken: !ImportValue CIDR-Assignment-LambdaARN  #ARN of Lambda function thad manages CIDR blocks
+      DynamoDBRegion: !Ref "AWS::Region"
+      DynamoDBTable: !ImportValue CIDR-DynamoBTableName
+      VPCCidr: !ImportValue Shared-VPC-CIDR-Range
+      
+  AutoScalingGroup: #web app servers launched/managed by ASGroup
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    CreationPolicy:
+      ResourceSignal:
+        Count: !Ref DesiredCapacity
+        Timeout: "PT5M"
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: true
+    Properties:
+      Cooldown: "300"
+      DesiredCapacity: !Ref DesiredCapacity
+      HealthCheckGracePeriod: "300"
+      HealthCheckType: ELB
+      LaunchConfigurationName: !Ref LaunchConfiguration
+      LoadBalancerNames:
+      - !Ref ELB
+      MaxSize: !Ref MaxSize
+      MinSize: !Ref MinSize
+      VPCZoneIdentifier:
+      - !Ref SubnetPublic1
+      - !Ref SubnetPublic2
+      Tags:
+      - Key: "createdBy"            #tag the AutoScaling Group
+        Value: "AAD - Application Infrastructure Stack"
+        PropagateAtLaunch: 'false'
+      - Key: "CreatedBy"            #tag EC2 instances launched by AutoScaling Group
+        Value: "AAD - Application Infrastructure Stack"
+        PropagateAtLaunch: 'true'
+      - Key: "name"                 #tag AutoScaling Group
+        Value: "AutoScaling Group for web application servers"
+        PropagateAtLaunch: 'false'
+      - Key: "Name"                 #tag EC2 instances launched by AutoScaling Group
+        Value: "AAD - web server"
+        PropagateAtLaunch: 'true'
+  LaunchConfiguration:
+    Type: "AWS::AutoScaling::LaunchConfiguration"
+    Properties:
+      ImageId: !FindInMap [AMIMapWeb, !Ref "AWS::Region", AWSLinux]
+      InstanceType: !FindInMap [InstanceSizeWeb, !Ref Environment, EC2]
+      KeyName: !ImportValue Master-KeyPair
+      SecurityGroups:
+      - !Ref SGPublic
+      UserData:
+        "Fn::Base64":
+          !Sub |
+            #!/bin/bash
+            yum update -y aws-cfn-bootstrap
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchConfiguration --configsets www --region ${AWS::Region}
+            yum -y update
+            curl 127.0.0.1/app.php | grep -f /var/www/html/test.pattern
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          www:
+          - "configure_cfn"
+          - "install_www"
+          - "config_app"
+        configure_cfn:
+          files:
+            #cfn-hup set to catch/handle stack updates; run the 'www' config key set BUT!!! superceeded
+            #due to ASG conf setting which stipulates instances are not updated but replaced entirely
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.LaunchConfiguration.Metadata.AWS::CloudFormation::Init
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchConfiguration --configsets www --region ${AWS::Region}
+              mode: "000400"
+              owner: root
+              group: root
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+                verbose=true
+                interval=5
+              mode: "000400"
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              cfn-hup:
+                enabled: "true"
+                ensureRunning: "true"
+                files:
+                - "/etc/cfn/cfn-hup.conf"
+                - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
+        install_www:
+          packages:
+            yum:
+              httpd: []
+              php: []
+          services:
+            sysvinit:
+              httpd:
+                enabled: "true"
+                ensureRunning: "true"
+        config_app:
+          sources:
+            /var/www/html: !Join ["", ["https://s3.amazonaws.com/", !ImportValue Master-S3ResourceBucket, "/deploy-app-res/App", !Ref AppVersion, ".zip"]]
+          files:
+            /var/www/html/test.pattern.zip:
+              source: !Join ["", ["https://s3.amazonaws.com/", !ImportValue Master-S3ResourceBucket, "/deploy-app-res/Test", !Ref AppVersion, ".zip"]]
+              mode: "000644"
+              owner: "root"
+              group: "root"
+          commands:
+            unzippattern:
+              cwd: "/var/www/html"
+              command: "unzip -o test.pattern.zip"
+
+  #Database servers will need manual operational maint
+  #Create 4 dedicated subnets (2 public, 2 private) and ELB to route internet traffic to web servers             
+  SubnetPublic1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ]
+      CidrBlock: !GetAtt CIDRAssignCustomResource.AppPublicCIDRB
+      MapPublicIpOnLaunch: true
+      VpcId: !ImportValue Shared-VPC-Id
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Application Infrastructure Stack"
+      - Key: "Name"
+        Value: "Dedicated Public Subnet 1"
+  SubnetPublic2: 
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs ]
+      CidrBlock: !GetAtt CIDRAssignCustomResource.AppPublicCIDRA
+      MapPublicIpOnLaunch: true
+      VpcId: !ImportValue Shared-VPC-Id
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Application Infrastructure Stack"
+      - Key: "Name"
+        Value: "Dedicated Public Subnet 2"
+  SubnetPrivate1: 
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ]
+      CidrBlock: !GetAtt CIDRAssignCustomResource.AppPrivateCIDRB
+      MapPublicIpOnLaunch: false
+      VpcId: !ImportValue Shared-VPC-Id
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Application Infrastructure Stack"
+      - Key: "Name"
+        Value: "Dedicated Private Subnet 1"
+  SubnetPrivate2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs ]
+      CidrBlock: !GetAtt CIDRAssignCustomResource.AppPrivateCIDRA
+      MapPublicIpOnLaunch: false
+      VpcId: !ImportValue Shared-VPC-Id
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Application Infrastructure Stack"
+      - Key: "Name"
+        Value: "Dedicated Private Subnet 2"
+  SubnetRouteTableAssociatePublic1:
+    DependsOn: SubnetPublic1
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !ImportValue Shared-PublicRT
+      SubnetId: !Ref SubnetPublic1
+  SubnetRouteTableAssociatePublic2:
+    DependsOn: SubnetPublic2
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !ImportValue Shared-PublicRT
+      SubnetId: !Ref SubnetPublic2 
+  SubnetRouteTableAssociatePrivate1: 
+    DependsOn: SubnetPrivate1
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !ImportValue Shared-PrivateRT1
+      SubnetId: !Ref SubnetPrivate1 
+  SubnetRouteTableAssociatePrivate2: 
+    DependsOn: SubnetPrivate2
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !ImportValue Shared-PrivateRT2
+      SubnetId: !Ref SubnetPrivate2 
+
+  ELB:
+    Type: "AWS::ElasticLoadBalancing::LoadBalancer"
+    Properties:
+      CrossZone: true
+      Listeners:
+      - InstancePort: "80"
+        InstanceProtocol: HTTP
+        LoadBalancerPort: "80"
+        Protocol: HTTP
+      Subnets:
+      - !Ref SubnetPublic1
+      - !Ref SubnetPublic2
+      SecurityGroups:
+      - !Ref SGPublic
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Application Infrastructure Stack"
+      - Key: "Name"
+        Value: "Dedicated ELB for web servers"
+
+  #create public security group for web servers
+  SGPublic:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Join ["", ["Stack ", !Ref "AWS::StackId", " App V", !Ref AppVersion, " - ", !Ref Environment]]
+      VpcId: !ImportValue Shared-VPC-Id
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Application Infrastructure Stack"
+      - Key: "Name"
+        Value: "Dedicated Public Security Group"
+  IngressSGPublic1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SGPublic
+      IpProtocol: tcp
+      FromPort: '80'
+      ToPort: '80'
+      CidrIp: 0.0.0.0/0
+  IngressSGPublic2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SGPublic
+      IpProtocol: tcp
+      FromPort: '22'
+      ToPort: '22'
+      CidrIp: 0.0.0.0/0
+  EgressSGPublic1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref SGPublic
+      IpProtocol: "-1"
+      CidrIp: 0.0.0.0/0
+
+  #create private security group for database servers
+  SGPrivate:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Join ["", ["Stack ", !Ref "AWS::StackId", " App V", !Ref AppVersion, " - ", !Ref Environment]]
+      VpcId: !ImportValue Shared-VPC-Id
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Application Infrastructure Stack"
+      - Key: "Name"
+        Value: "Dedicated Private Security Group"
+  IngressSGPrivate1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SGPrivate
+      IpProtocol: tcp
+      FromPort: '22'
+      ToPort: '22'
+      SourceSecurityGroupId: !ImportValue Shared-PublicSG
+  IngressSGPrivate2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SGPrivate
+      IpProtocol: tcp
+      FromPort: '3306'
+      ToPort: '3306'
+      SourceSecurityGroupId: !ImportValue Shared-PublicSG
+  IngressSGPrivate3:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SGPrivate
+      IpProtocol: tcp
+      FromPort: '3306'
+      ToPort: '3306'
+      SourceSecurityGroupId: !Ref SGPublic
+      
+  #create the database servers
+  DatabaseServer1:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [AMIMapDB, !Ref "AWS::Region", AWSLinux]
+      InstanceType: !FindInMap [InstanceSizeDB, !Ref Environment, EC2]
+      KeyName: !ImportValue Master-KeyPair
+      NetworkInterfaces:
+      - Description: Primary network interface
+        DeviceIndex: 0 
+        SubnetId: !Ref SubnetPrivate1
+        GroupSet:
+        - !Ref SGPrivate
+      UserData:
+        "Fn::Base64":
+          !Sub |
+            #!/bin/bash
+            yum update -y
+            yum install mysql -y
+            yum install mysql-server -y
+            yum install mysql-libs -y
+            yum install php-mysql -y
+            service mysql start
+            chkconfig mysql on
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Application Infrastructure Stack"
+      - Key: "Name"
+        Value: "AAD = DBserver 1"
+  DatabaseServer2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [AMIMapDB, !Ref "AWS::Region", AWSLinux]
+      InstanceType: !FindInMap [InstanceSizeDB, !Ref Environment, EC2]
+      KeyName: !ImportValue Master-KeyPair
+      NetworkInterfaces:
+      - Description: Primary network interface
+        DeviceIndex: 0 
+        SubnetId: !Ref SubnetPrivate2
+        GroupSet:
+        - !Ref SGPrivate
+      UserData:
+        "Fn::Base64":
+          !Sub |
+            #!/bin/bash
+            yum update -y
+            yum install mysql -y
+            yum install mysql-server -y
+            yum install mysql-libs -y
+            yum install php-mysql -y
+            service mysql start
+            chkconfig mysql on
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Application Infrastructure Stack"
+      - Key: "Name"
+        Value: "AAD - DBserver 2"
+    
+Outputs:
+  DatabaseServer1IP:
+    Description: Private IP address of database server 1
+    Value: !GetAtt DatabaseServer1.PrivateIp
+
+  DatabaseServer2IP:
+    Description: Private IP address of database server 2
+    Value: !GetAtt DatabaseServer2.PrivateIp
+
+  Endpoint:
+    Description: Application Address
+    Value: !Join ["", ["http://", !GetAtt ELB.DNSName, "/app.php"]]

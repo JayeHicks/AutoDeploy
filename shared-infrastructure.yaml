@@ -1,0 +1,323 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: 
+  "Jaye Hicks Consulting 2019
+  Obligatory legal disclaimer 
+  You are free to use this source code (this file and all other files 
+  referenced in this file) 'AS IS' WITHOUT WARRANTY OF ANY KIND, EITHER 
+  EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED 
+  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE 
+  ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THIS SOURCE CODE IS WITH 
+  YOU.  SHOULD THE SOURCE CODE PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL 
+  NECESSARY SERVICING, REPAIR OR CORRECTION. See the GNU GENERAL PUBLIC 
+  LICENSE Version 3, 29 June 2007 for more details."
+  
+Parameters:
+  KeyPair:
+    Type: String
+  VPCCIDR:
+    Type: String
+    Default: 10.0.0.0/16
+  SharedPubSN1CIDR:
+    Type: String
+    Default: 10.0.0.0/24
+  SharedPubSN2CIDR:
+    Type: String
+    Default: 10.0.1.0/24
+
+Mappings:
+  AMIMapJumpServer: #Amazon Linux 2 AMI (HVM) x86, SSD Volume Type (updated 2/21)
+    us-east-1:
+      AWSLinux :    "ami-047a51fa27710816e"
+    us-east-2:
+      AWSLinux :    "ami-01aab85a5e4a5a0fe"
+    us-west-1:
+      AWSLinux :    "ami-005c06c6de69aee84"  
+    us-west-2:
+      AWSLinux :    "ami-0e999cbd62129e3b1"             
+    af-south-1:
+      AWSLinux :    "ami-0438616cef15ba2ca"
+    ap-east-1:
+      AWSLinux :    "ami-040f64b9a031d8eb0" 
+    ap-south-1:
+      AWSLinux :    "ami-08e0ca9924195beba"
+    ap-northeast-1:
+      AWSLinux :    "ami-0992fc94ca0f1415a"
+    ap-northeast-2:
+      AWSLinux :    "ami-09282971cf2faa4c9"
+    ap-southeast-1:
+      AWSLinux :    "ami-0e2e44c03b85f58b3"
+    ap-southeast-2:
+      AWSLinux :    "ami-04f77aa5970939148"
+    ca-central-1:
+      AWSLinux :    "ami-075cfad2d9805c5f2"
+    eu-central-1:
+      AWSLinux :    "ami-0a6dc7529cd559185"                
+    eu-north-1:
+      AWSLinux:     "ami-0eb6f319b31f7092d"
+    eu-west-1:
+      AWSLinux :    "ami-0fc970315c2d38f01"
+    eu-west-2:
+      AWSLinux :    "ami-098828924dc89ea4a"
+    eu-west-3:
+      AWSLinux :    "ami-0ea4a063871686f37"   
+    me-south-1:
+      AWSLinux:     "ami-0cc4f2b06b56d27e9"
+    sa-east-1:
+      AWSLinux :    "ami-089aac6323aa08aee" 
+  InstanceSizeMapJumpServer:
+    Small:
+      "EC2" : "t2.micro"
+    Large:
+      "EC2" : "t2.small"
+
+Resources:
+#Create VPC, IGW, EIPs
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Shared Infrastructure Stack"
+      - Key: "Name"
+        Value: "Shared VPC"
+  IGW:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Shared Infrastructure Stack"
+      - Key: "Name"
+        Value: "Shared Internet GW"
+  GatewayAttach:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref VPC      
+  EIPNatGW1:
+    DependsOn: GatewayAttach
+    Type: "AWS::EC2::EIP"
+    Properties:
+      Domain: vpc
+  EIPNatGW2:
+    DependsOn: GatewayAttach
+    Type: "AWS::EC2::EIP"
+    Properties:
+      Domain: vpc
+ 
+#Create Route Tables and Routes   
+  RouteDefaultPublic:
+    Type: "AWS::EC2::Route"
+    DependsOn: GatewayAttach
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref RouteTablePublic
+  RouteDefaultPrivate1:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway1
+      RouteTableId: !Ref RouteTablePrivate1
+  RouteDefaultPrivate2:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway2
+      RouteTableId: !Ref RouteTablePrivate2
+  RouteTablePublic:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Shared Infrastructure Stack"
+      - Key: "Name"
+        Value: "Shared Public Route Table"
+  RouteTablePrivate1:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Shared Infrastructure Stack"
+      - Key: "Name"
+        Value: "Shared Private Route Table 1"
+  RouteTablePrivate2:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Shared Infrastructure Stack"
+      - Key: "Name"
+        Value: "Shared Private Route Table 2"
+
+#Create Public SG for Jump Servers
+  SGPublic:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Shared Public SG for Jump Servers"
+      VpcId: !Ref VPC
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Shared Infrastructure Stack"
+      - Key: "Name"
+        Value: "Shared Public Security Group"
+  IngressSGPublic1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SGPublic
+      IpProtocol: tcp
+      FromPort: '80'
+      ToPort: '80'
+      CidrIp: 0.0.0.0/0
+  IngressSGPublic2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SGPublic
+      IpProtocol: tcp
+      FromPort: '22'
+      ToPort: '22'
+      CidrIp: 0.0.0.0/0
+  EgressSGPublic1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref SGPublic
+      IpProtocol: "-1"
+      CidrIp: 0.0.0.0/0
+
+#Create Subnets and NAT Gateways  
+  SubnetPublicShared1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ]
+      CidrBlock: !Ref SharedPubSN1CIDR
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref VPC
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Shared Infrastructure Stack"
+      - Key: "Name"
+        Value: "Shared Public Subnet 1"
+  SubnetPublicShared2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs ]
+      CidrBlock: !Ref SharedPubSN2CIDR
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref VPC
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Shared Infrastructure Stack"
+      - Key: "Name"
+        Value: "Shared Public Subnet 2"
+  SubnetRouteTableAssociatePublic1:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePublic
+      SubnetId: !Ref SubnetPublicShared1
+  SubnetRouteTableAssociatePublic2:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePublic
+      SubnetId: !Ref SubnetPublicShared2
+  NATGateway1:
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId: !GetAtt EIPNatGW1.AllocationId
+      SubnetId: !Ref SubnetPublicShared1
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Shared Infrastructure Stack"
+      - Key: "Name"
+        Value: "Shared NAT GW 1"
+  NATGateway2:
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId: !GetAtt EIPNatGW2.AllocationId
+      SubnetId: !Ref SubnetPublicShared2
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Shared Infrastructure Stack"
+      - Key: "Name"
+        Value: "Shared NAT GW 2"        
+      
+#create the Jump Servers; they will req manual operational maint
+  JumpServer1:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [AMIMapJumpServer, !Ref "AWS::Region", AWSLinux]
+      InstanceType: !FindInMap [InstanceSizeMapJumpServer, Small, EC2]
+      KeyName: !Ref KeyPair
+      NetworkInterfaces:
+      - Description: Primary network interface
+        DeviceIndex: 0 
+        SubnetId: !Ref SubnetPublicShared1
+        GroupSet:
+        - !Ref SGPublic
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Shared Infrastructure Stack"
+      - Key: "Name"
+        Value: "JumpServer 1"
+  JumpServer2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [AMIMapJumpServer, !Ref "AWS::Region", AWSLinux]
+      InstanceType: !FindInMap [InstanceSizeMapJumpServer, Small, EC2]
+      KeyName: !Ref KeyPair
+      NetworkInterfaces:
+      - Description: Primary network interface
+        DeviceIndex: 0 
+        SubnetId: !Ref SubnetPublicShared2
+        GroupSet:
+        - !Ref SGPublic
+      Tags:
+      - Key: "CreatedBy"
+        Value: "AAD - Shared Infrastructure Stack"
+      - Key: "Name"
+        Value: "JumpServer 2"
+ 
+Outputs:
+  VPCCIDRRange:
+    Description: CIDR Block for shared VPC
+    Value: !Ref VPCCIDR
+    Export:
+      Name: Shared-VPC-CIDR-Range
+  VPCId:
+    Description: ID of shared VPC
+    Value: !Ref VPC
+    Export:
+      Name: Shared-VPC-Id
+  PublicRT:
+    Description: ID of shared public Route Table
+    Value: !Ref RouteTablePublic
+    Export:
+      Name: Shared-PublicRT
+  PrivateRT1:
+    Description: ID of shared private Route Table 1
+    Value: !Ref RouteTablePrivate1
+    Export:
+      Name: Shared-PrivateRT1
+  PrivateRT2:
+    Description: ID of shared private Route Table 2
+    Value: !Ref RouteTablePrivate2
+    Export:
+      Name: Shared-PrivateRT2
+  PublicSG:
+    Description: ID of shared public Security Group
+    Value: !Ref SGPublic
+    Export:
+      Name: Shared-PublicSG
+  JumpServer1IP:
+    Description: Public IP address of jump server 1
+    Value: !GetAtt JumpServer1.PublicIp
+    Export:
+      Name: Shared-JumpServer1IP
+  JumpServer2IP:
+    Description: Public IP address of jump server 2
+    Value: !GetAtt JumpServer2.PublicIp
+    Export:
+      Name: Shared-JumpServer2IP
